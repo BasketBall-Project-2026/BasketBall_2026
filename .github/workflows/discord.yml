@@ -1,0 +1,65 @@
+name: Build and Notify Discord
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Replace this with your actual build or test steps
+      - name: Run tests
+        run: |
+          echo "Running build and tests..."
+          # exit 1 # Uncomment to test a failed red embed
+
+      - name: Send Discord Embed
+        if: always() # Ensures this runs even if previous steps fail
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          JOB_STATUS: ${{ job.status }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
+          AUTHOR_NAME: ${{ github.event.head_commit.author.name }}
+        run: |
+          # Set embed color (Decimal values: Green = 3066993, Red = 15158332, Orange = 15105570)
+          if [ "$JOB_STATUS" == "success" ]; then
+            COLOR=3066993
+            TITLE="✅ Build Succeeded"
+          elif [ "$JOB_STATUS" == "failure" ]; then
+            COLOR=15158332
+            TITLE="❌ Build Failed"
+          else
+            COLOR=15105570
+            TITLE="⚠️ Build Cancelled"
+          fi
+
+          # Safely construct JSON payload using jq
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg url "$COMMIT_URL" \
+            --arg desc "$COMMIT_MSG" \
+            --argjson color "$COLOR" \
+            --arg repo "${{ github.repository }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg author "$AUTHOR_NAME" \
+            '{
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: $color,
+                fields: [
+                  { name: "Repository", value: $repo, inline: true },
+                  { name: "Branch", value: $branch, inline: true },
+                  { name: "Author", value: $author, inline: true }
+                ]
+              }]
+            }')
+
+          # Post to Discord Webhook
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
